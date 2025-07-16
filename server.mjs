@@ -303,6 +303,10 @@ app.post("/delete", async (req, res) => {
   if (!match) {
     return res.status(401).json({ error: "Invalid credentials" });
   }
+  // Delete dependent rows first
+  await sql`DELETE FROM login_time WHERE user_id = ${user[0].id}`;
+  await sql`DELETE FROM verification WHERE user_id = ${user[0].id}`;
+  await sql`DELETE FROM otps WHERE email = ${email}`;
   await sql`DELETE FROM users WHERE email = ${email}`;
   res.json({ message: "User deleted successfully" });
 });
