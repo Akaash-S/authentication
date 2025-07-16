@@ -92,6 +92,14 @@ function generateToken(length = 48) {
   return [...Array(length)].map(() => Math.random().toString(36)[2]).join("");
 }
 
+// 🔢 Generate a 6-digit OTP
+function generateOTP() {
+  return Math.floor(100000 + Math.random() * 900000).toString();
+}
+
+// In-memory store for OTPs: { [email]: { otp, expiresAt } }
+const otpStore = {};
+
 // ➕ POST /register (with email verification)
 app.post("/register", async (req, res) => {
   const { email, password } = req.body;
@@ -162,6 +170,55 @@ app.get("/verify", (req, res) => {
   user.verified = true;
   delete verificationTokens[token];
   res.json({ message: "Email verified successfully!" });
+});
+
+// 📤 POST /send-otp (send OTP to user's email)
+app.post("/send-otp", async (req, res) => {
+  const { email } = req.body;
+  if (!email) return res.status(400).json({ error: "Email required" });
+
+  // Generate OTP and expiry (5 min)
+  const otp = generateOTP();
+  const expiresAt = Date.now() + 5 * 60 * 1000;
+  otpStore[email] = { otp, expiresAt };
+
+  // Send OTP via email
+  const transporter = await createTransporter();
+  const mailOptions = {
+    from: 'No Reply <no-reply@example.com>',
+    to: email,
+    subject: 'Your OTP Code',
+    text: `Your OTP code is: ${otp}`,
+    html: `<p>Your OTP code is: <b>${otp}</b></p>`
+  };
+  try {
+    const info = await transporter.sendMail(mailOptions);
+    if (process.env.NODE_ENV !== "production") {
+      res.json({ message: "OTP sent", preview: nodemailer.getTestMessageUrl(info) });
+    } else {
+      res.json({ message: "OTP sent" });
+    }
+  } catch (err) {
+    console.error("OTP email send error:", err);
+    res.status(500).json({ error: "Failed to send OTP" });
+  }
+});
+
+// ✅ POST /verify-otp (verify OTP for user)
+app.post("/verify-otp", (req, res) => {
+  const { email, otp } = req.body;
+  if (!email || !otp) return res.status(400).json({ error: "Email and OTP required" });
+
+  const record = otpStore[email];
+  if (!record) return res.status(400).json({ error: "No OTP requested for this email" });
+  if (Date.now() > record.expiresAt) {
+    delete otpStore[email];
+    return res.status(400).json({ error: "OTP expired" });
+  }
+  if (record.otp !== otp) return res.status(400).json({ error: "Invalid OTP" });
+
+  delete otpStore[email];
+  res.json({ message: "OTP verified successfully" });
 });
 
 // 🔓 POST /login
